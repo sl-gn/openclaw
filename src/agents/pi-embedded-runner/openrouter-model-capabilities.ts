@@ -40,6 +40,7 @@ interface OpenRouterApiModel {
   modality?: string;
   architecture?: {
     modality?: string;
+    input_modalities?: string[];
   };
   supported_parameters?: string[];
   context_length?: number;
@@ -58,7 +59,7 @@ interface OpenRouterApiModel {
 
 export interface OpenRouterModelCapabilities {
   name: string;
-  input: Array<"text" | "image">;
+  input: Array<"text" | "image" | "video">;
   reasoning: boolean;
   contextWindow: number;
   maxTokens: number;
@@ -152,11 +153,16 @@ let fetchInFlight: Promise<void> | undefined;
 const skipNextMissRefresh = new Set<string>();
 
 function parseModel(model: OpenRouterApiModel): OpenRouterModelCapabilities {
-  const input: Array<"text" | "image"> = ["text"];
-  const modality = model.architecture?.modality ?? model.modality ?? "";
-  const inputModalities = modality.split("->")[0] ?? "";
-  if (inputModalities.includes("image")) {
-    input.push("image");
+  const input: Array<"text" | "image" | "video"> = ["text"];
+  const inputMods = model.architecture?.input_modalities;
+  if (Array.isArray(inputMods)) {
+    if (inputMods.includes("image")) {input.push("image");}
+    if (inputMods.includes("video")) {input.push("video");}
+  } else {
+    const modality = model.architecture?.modality ?? model.modality ?? "";
+    const inputModalities = modality.split("->")[0] ?? "";
+    if (inputModalities.includes("image")) {input.push("image");}
+    if (inputModalities.includes("video")) {input.push("video");}
   }
 
   return {

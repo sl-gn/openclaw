@@ -7,6 +7,7 @@ import {
   DefaultResourceLoader,
   SessionManager,
 } from "@mariozechner/pi-coding-agent";
+import type { VideoContent } from "../../../commands/agent/types.js";
 import { resolveHeartbeatPrompt } from "../../../auto-reply/heartbeat.js";
 import { resolveChannelCapabilities } from "../../../config/channel-capabilities.js";
 import type { OpenClawConfig } from "../../../config/config.js";
@@ -139,7 +140,7 @@ import {
   shouldFlagCompactionTimeout,
 } from "./compaction-timeout.js";
 import { pruneProcessedHistoryImages } from "./history-image-prune.js";
-import { detectAndLoadPromptImages } from "./images.js";
+import { detectAndLoadPromptImages, modelSupportsVideo } from "./images.js";
 import type { EmbeddedRunAttemptParams, EmbeddedRunAttemptResult } from "./types.js";
 
 type PromptBuildHookRunner = {
@@ -429,6 +430,55 @@ export function wrapOllamaCompatNumCtx(baseFn: StreamFn | undefined, numCtx: num
         return options?.onPayload?.(payload, model);
       },
     });
+}
+
+/** Inject video_url blocks into the last user message for OpenRouter/Gemini video-capable models. */
+function wrapStreamFnWithVideoInjection(
+  baseFn: StreamFn,
+  videos: VideoContent[] | undefined,
+  model: { input?: string[] },
+): StreamFn {
+  if (!videos?.length || !modelSupportsVideo(model)) {
+    return baseFn;
+  }
+  const videoBlocks = videos.map((v) => {
+    let url = v.url;
+    if (!url && v.data) {
+      const mime = v.mimeType ?? "video/mp4";
+      url = `data:${mime};base64,${v.data}`;
+    }
+    if (!url) {
+      return null;
+    }
+    return { type: "video_url" as const, video_url: { url } };
+  });
+  type VideoBlock = { type: "video_url"; video_url: { url: string } };
+  const validBlocks = videoBlocks.filter((b): b is VideoBlock => Boolean(b));
+  if (validBlocks.length === 0) {
+    return baseFn;
+  }
+  return (modelArg, context, options) => {
+    const ctx = context as { messages?: Array<{ role?: string; content?: unknown }> };
+    const messages = ctx.messages;
+    if (Array.isArray(messages) && messages.length > 0) {
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i];
+        if (msg?.role === "user" && msg.content !== undefined) {
+          const content = Array.isArray(msg.content)
+            ? [...msg.content, ...validBlocks]
+            : typeof msg.content === "string"
+              ? [{ type: "text" as const, text: msg.content }, ...validBlocks]
+              : [{ type: "text" as const, text: JSON.stringify(msg.content ?? "") }, ...validBlocks];
+          const modifiedContext = {
+            ...context,
+            messages: messages.slice(0, i).concat([{ ...msg, content }], messages.slice(i + 1)),
+          };
+          return baseFn(modelArg, modifiedContext, options);
+        }
+      }
+    }
+    return baseFn(modelArg, context, options);
+  };
 }
 
 function resolveCaseInsensitiveAllowedToolName(
@@ -1937,6 +1987,14 @@ export async function runEmbeddedAttempt(
           ),
         );
         activeSession.agent.streamFn = wrapOllamaCompatNumCtx(activeSession.agent.streamFn, numCtx);
+      }
+
+      if (params.videos?.length) {
+        activeSession.agent.streamFn = wrapStreamFnWithVideoInjection(
+          activeSession.agent.streamFn,
+          params.videos,
+          params.model,
+        );
       }
 
       applyExtraParamsToAgent(

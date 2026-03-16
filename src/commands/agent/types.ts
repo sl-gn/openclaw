@@ -11,6 +11,15 @@ export type ImageContent = {
   mimeType: string;
 };
 
+/** Video content for models that support video input (e.g. OpenRouter/Gemini). */
+export type VideoContent = {
+  type: "video";
+  /** URL (https or data:video/mp4;base64,...) or base64 data. */
+  url?: string;
+  data?: string;
+  mimeType?: string;
+};
+
 export type AgentStreamParams = {
   /** Provider stream params override (best-effort). */
   temperature?: number;
@@ -35,6 +44,8 @@ export type AgentCommandOpts = {
   message: string;
   /** Optional image attachments for multimodal messages. */
   images?: ImageContent[];
+  /** Optional video attachments (OpenRouter/Gemini video-capable models). */
+  videos?: VideoContent[];
   /** Optional client-provided tools (OpenResponses hosted tools). */
   clientTools?: ClientToolDefinition[];
   /** Agent id override (must exist in config). */

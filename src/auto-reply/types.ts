@@ -1,5 +1,6 @@
 import type { ImageContent } from "@mariozechner/pi-ai";
 import type { InteractiveReply } from "../interactive/payload.js";
+import type { VideoContent } from "../commands/agent/types.js";
 import type { TypingController } from "./reply/typing.js";
 
 export type BlockReplyContext = {
@@ -28,6 +29,8 @@ export type GetReplyOptions = {
   abortSignal?: AbortSignal;
   /** Optional inbound images (used for webchat attachments). */
   images?: ImageContent[];
+  /** Optional inbound videos (OpenRouter/Gemini video-capable models). */
+  videos?: VideoContent[];
   /** Notifies when an agent run actually starts (useful for webchat command handling). */
   onAgentRunStart?: (runId: string) => void;
   onReplyStart?: () => Promise<void> | void;

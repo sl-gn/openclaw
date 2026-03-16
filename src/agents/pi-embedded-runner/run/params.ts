@@ -1,4 +1,5 @@
 import type { ImageContent } from "@mariozechner/pi-ai";
+import type { VideoContent } from "../../../commands/agent/types.js";
 import type { ReasoningLevel, ThinkLevel, VerboseLevel } from "../../../auto-reply/thinking.js";
 import type { ReplyPayload } from "../../../auto-reply/types.js";
 import type { AgentStreamParams } from "../../../commands/agent/types.js";
@@ -70,6 +71,8 @@ export type RunEmbeddedPiAgentParams = {
   skillsSnapshot?: SkillSnapshot;
   prompt: string;
   images?: ImageContent[];
+  /** Optional video attachments (OpenRouter/Gemini video-capable models). */
+  videos?: VideoContent[];
   /** Optional client-provided tools (OpenResponses hosted tools). */
   clientTools?: ClientToolDefinition[];
   /** Disable built-in tools for this run (LLM-only mode). */

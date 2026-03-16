@@ -1,3 +1,4 @@
+import type { VideoContent } from "../commands/agent/types.js";
 import { estimateBase64DecodedBytes } from "../media/base64.js";
 import { sniffMimeFromBase64 } from "../media/sniff-mime-from-base64.js";
 
@@ -6,6 +7,8 @@ export type ChatAttachment = {
   mimeType?: string;
   fileName?: string;
   content?: unknown;
+  /** URL for remote video (alternative to content base64). */
+  url?: string;
 };
 
 export type ChatImageContent = {
@@ -17,6 +20,7 @@ export type ChatImageContent = {
 export type ParsedMessageWithImages = {
   message: string;
   images: ChatImageContent[];
+  videos: VideoContent[];
 };
 
 type AttachmentLog = {
@@ -39,6 +43,10 @@ function normalizeMime(mime?: string): string | undefined {
 
 function isImageMime(mime?: string): boolean {
   return typeof mime === "string" && mime.startsWith("image/");
+}
+
+function isVideoMime(mime?: string): boolean {
+  return typeof mime === "string" && mime.startsWith("video/");
 }
 
 function isValidBase64(value: string): boolean {
@@ -89,45 +97,72 @@ function validateAttachmentBase64OrThrow(
   return sizeBytes;
 }
 
+const VIDEO_MAX_BYTES = 50 * 1024 * 1024; // 50 MB
+
 /**
- * Parse attachments and extract images as structured content blocks.
- * Returns the message text and an array of image content blocks
- * compatible with Claude API's image format.
+ * Parse attachments and extract images + videos as structured content blocks.
+ * Returns the message text, image blocks (Claude API format), and video blocks.
  */
 export async function parseMessageWithAttachments(
   message: string,
   attachments: ChatAttachment[] | undefined,
-  opts?: { maxBytes?: number; log?: AttachmentLog },
+  opts?: { maxBytes?: number; videoMaxBytes?: number; log?: AttachmentLog },
 ): Promise<ParsedMessageWithImages> {
-  const maxBytes = opts?.maxBytes ?? 5_000_000; // decoded bytes (5,000,000)
+  const maxBytes = opts?.maxBytes ?? 5_000_000; // 5 MB for images
+  const videoMaxBytes = opts?.videoMaxBytes ?? VIDEO_MAX_BYTES;
   const log = opts?.log;
   if (!attachments || attachments.length === 0) {
-    return { message, images: [] };
+    return { message, images: [], videos: [] };
   }
 
   const images: ChatImageContent[] = [];
+  const videos: VideoContent[] = [];
 
   for (const [idx, att] of attachments.entries()) {
     if (!att) {
+      continue;
+    }
+    // Support url for remote video (no base64)
+    if (typeof att.url === "string" && att.url.trim()) {
+      const mime = normalizeMime(att.mimeType);
+      if (mime && isVideoMime(mime)) {
+        videos.push({ type: "video", url: att.url.trim(), mimeType: mime });
+      }
       continue;
     }
     const normalized = normalizeAttachment(att, idx, {
       stripDataUrlPrefix: true,
       requireImageMime: false,
     });
-    validateAttachmentBase64OrThrow(normalized, { maxBytes });
     const { base64: b64, label, mime } = normalized;
 
     const providedMime = normalizeMime(mime);
+    // When we know it's an image, validate size before sniffing to avoid Buffer.from for oversize payloads.
+    if (isImageMime(providedMime)) {
+      validateAttachmentBase64OrThrow(normalized, { maxBytes });
+    }
     const sniffedMime = normalizeMime(await sniffMimeFromBase64(b64));
+    const effectiveMime = sniffedMime ?? providedMime ?? mime;
+
+    if (isVideoMime(sniffedMime) || isVideoMime(providedMime)) {
+      validateAttachmentBase64OrThrow(normalized, { maxBytes: videoMaxBytes });
+      videos.push({
+        type: "video",
+        data: b64,
+        mimeType: effectiveMime ?? "video/mp4",
+        url: `data:${effectiveMime ?? "video/mp4"};base64,${b64}`,
+      });
+      continue;
+    }
     if (sniffedMime && !isImageMime(sniffedMime)) {
-      log?.warn(`attachment ${label}: detected non-image (${sniffedMime}), dropping`);
+      log?.warn(`attachment ${label}: detected non-image, non-video (${sniffedMime}), dropping`);
       continue;
     }
     if (!sniffedMime && !isImageMime(providedMime)) {
       log?.warn(`attachment ${label}: unable to detect image mime type, dropping`);
       continue;
     }
+    validateAttachmentBase64OrThrow(normalized, { maxBytes });
     if (sniffedMime && providedMime && sniffedMime !== providedMime) {
       log?.warn(
         `attachment ${label}: mime mismatch (${providedMime} -> ${sniffedMime}), using sniffed`,
@@ -137,11 +172,11 @@ export async function parseMessageWithAttachments(
     images.push({
       type: "image",
       data: b64,
-      mimeType: sniffedMime ?? providedMime ?? mime,
+      mimeType: effectiveMime ?? mime,
     });
   }
 
-  return { message, images };
+  return { message, images, videos };
 }
 
 /**

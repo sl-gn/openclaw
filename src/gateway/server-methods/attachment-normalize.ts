@@ -5,6 +5,8 @@ export type RpcAttachmentInput = {
   mimeType?: unknown;
   fileName?: unknown;
   content?: unknown;
+  /** URL for remote video (alternative to content base64). */
+  url?: unknown;
 };
 
 export function normalizeRpcAttachmentsToChatAttachments(
@@ -12,11 +14,8 @@ export function normalizeRpcAttachmentsToChatAttachments(
 ): ChatAttachment[] {
   return (
     attachments
-      ?.map((a) => ({
-        type: typeof a?.type === "string" ? a.type : undefined,
-        mimeType: typeof a?.mimeType === "string" ? a.mimeType : undefined,
-        fileName: typeof a?.fileName === "string" ? a.fileName : undefined,
-        content:
+      ?.map((a) => {
+        const content =
           typeof a?.content === "string"
             ? a.content
             : ArrayBuffer.isView(a?.content)
@@ -25,8 +24,16 @@ export function normalizeRpcAttachmentsToChatAttachments(
                 )
               : a?.content instanceof ArrayBuffer
                 ? Buffer.from(a.content).toString("base64")
-                : undefined,
-      }))
-      .filter((a) => a.content) ?? []
+                : undefined;
+        const url = typeof a?.url === "string" && a.url.trim() ? a.url.trim() : undefined;
+        return {
+          type: typeof a?.type === "string" ? a.type : undefined,
+          mimeType: typeof a?.mimeType === "string" ? a.mimeType : undefined,
+          fileName: typeof a?.fileName === "string" ? a.fileName : undefined,
+          content,
+          url,
+        };
+      })
+      .filter((a) => a.content || a.url) ?? []
   );
 }

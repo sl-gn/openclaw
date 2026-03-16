@@ -140,6 +140,23 @@ describe("parseMessageWithAttachments", () => {
 });
 
 describe("shared attachment validation", () => {
+  it("parses video url attachment", async () => {
+    const { parsed } = await parseWithWarnings("describe this video", [
+      {
+        type: "file",
+        mimeType: "video/mp4",
+        url: "https://example.com/demo.mp4",
+      },
+    ]);
+    expect(parsed.images).toHaveLength(0);
+    expect(parsed.videos).toHaveLength(1);
+    expect(parsed.videos[0]).toMatchObject({
+      type: "video",
+      url: "https://example.com/demo.mp4",
+      mimeType: "video/mp4",
+    });
+  });
+
   it("rejects invalid base64 content for both builder and parser", async () => {
     const bad: ChatAttachment = {
       type: "image",
