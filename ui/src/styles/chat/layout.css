@@ -300,6 +300,25 @@
   justify-content: flex-end;
 }
 
+/* Message videos (sent videos displayed in chat) */
+.chat-message-videos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.chat-message-video {
+  max-width: 300px;
+  max-height: 200px;
+  border-radius: 8px;
+  object-fit: contain;
+}
+
+.chat-group.user .chat-message-videos {
+  justify-content: flex-end;
+}
+
 /* Compose input row - horizontal layout */
 .chat-compose__row {
   display: flex;
@@ -657,7 +676,8 @@
   border: 1px solid var(--border);
 }
 
-.chat-attachment-thumb img {
+.chat-attachment-thumb img,
+.chat-attachment-thumb video {
   width: 100%;
   height: 100%;
   object-fit: cover;

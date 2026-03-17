@@ -1,9 +1,13 @@
 import { html, nothing, type TemplateResult } from "lit";
 import { ref } from "lit/directives/ref.js";
 import { repeat } from "lit/directives/repeat.js";
+import type { GatewaySessionRow, SessionsListResult } from "../types.ts";
+import type { ChatItem, MessageGroup } from "../types/chat-types.ts";
+import type { ChatAttachment, ChatQueueItem } from "../ui-types.ts";
 import {
   CHAT_ATTACHMENT_ACCEPT,
   isSupportedChatAttachmentMimeType,
+  isVideoMimeType,
 } from "../chat/attachment-support.ts";
 import { DeletedMessages } from "../chat/deleted-messages.ts";
 import { exportChatMarkdown } from "../chat/export.ts";
@@ -28,9 +32,6 @@ import {
 import { isSttSupported, startStt, stopStt } from "../chat/speech.ts";
 import { icons } from "../icons.ts";
 import { detectTextDirection } from "../text-direction.ts";
-import type { GatewaySessionRow, SessionsListResult } from "../types.ts";
-import type { ChatItem, MessageGroup } from "../types/chat-types.ts";
-import type { ChatAttachment, ChatQueueItem } from "../ui-types.ts";
 import { agentLogoUrl, resolveAgentAvatarUrl } from "./agents-utils.ts";
 import { renderMarkdownSidebar } from "./markdown-sidebar.ts";
 import "../components/resizable-divider.ts";
@@ -303,18 +304,18 @@ function handlePaste(e: ClipboardEvent, props: ChatProps) {
   if (!items || !props.onAttachmentsChange) {
     return;
   }
-  const imageItems: DataTransferItem[] = [];
+  const mediaItems: DataTransferItem[] = [];
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
-    if (item.type.startsWith("image/")) {
-      imageItems.push(item);
+    if (item.type.startsWith("image/") || item.type.startsWith("video/")) {
+      mediaItems.push(item);
     }
   }
-  if (imageItems.length === 0) {
+  if (mediaItems.length === 0) {
     return;
   }
   e.preventDefault();
-  for (const item of imageItems) {
+  for (const item of mediaItems) {
     const file = item.getAsFile();
     if (!file) {
       continue;
@@ -401,10 +402,13 @@ function renderAttachmentPreview(props: ChatProps): TemplateResult | typeof noth
   }
   return html`
     <div class="chat-attachments-preview">
-      ${attachments.map(
-        (att) => html`
+      ${attachments.map((att) => {
+        const thumb = isVideoMimeType(att.mimeType)
+          ? html`<video src=${att.dataUrl} muted class="chat-attachment-thumb-video"></video>`
+          : html`<img src=${att.dataUrl} alt="Attachment preview" />`;
+        return html`
           <div class="chat-attachment-thumb">
-            <img src=${att.dataUrl} alt="Attachment preview" />
+            ${thumb}
             <button
               class="chat-attachment-remove"
               type="button"
@@ -415,8 +419,8 @@ function renderAttachmentPreview(props: ChatProps): TemplateResult | typeof noth
               }}
             >&times;</button>
           </div>
-        `,
-      )}
+        `;
+      })}
     </div>
   `;
 }

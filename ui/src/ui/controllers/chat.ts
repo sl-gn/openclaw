@@ -1,8 +1,9 @@
-import { resetToolStream } from "../app-tool-stream.ts";
-import { extractText } from "../chat/message-extract.ts";
-import { formatConnectError } from "../connect-error.ts";
 import type { GatewayBrowserClient } from "../gateway.ts";
 import type { ChatAttachment } from "../ui-types.ts";
+import { resetToolStream } from "../app-tool-stream.ts";
+import { isVideoMimeType } from "../chat/attachment-support.ts";
+import { extractText } from "../chat/message-extract.ts";
+import { formatConnectError } from "../connect-error.ts";
 import { generateUUID } from "../uuid.ts";
 
 const SILENT_REPLY_PATTERN = /^\s*NO_REPLY\s*$/;
@@ -171,12 +172,16 @@ export async function sendChatMessage(
   if (msg) {
     contentBlocks.push({ type: "text", text: msg });
   }
-  // Add image previews to the message for display
+  // Add image/video previews to the message for display
   if (hasAttachments) {
     for (const att of attachments) {
+      const parsed = dataUrlToBase64(att.dataUrl);
+      if (!parsed) {
+        continue;
+      }
       contentBlocks.push({
-        type: "image",
-        source: { type: "base64", media_type: att.mimeType, data: att.dataUrl },
+        type: isVideoMimeType(att.mimeType) ? "video" : "image",
+        source: { type: "base64", media_type: parsed.mimeType, data: parsed.content },
       });
     }
   }
@@ -197,7 +202,7 @@ export async function sendChatMessage(
   state.chatStream = "";
   state.chatStreamStartedAt = now;
 
-  // Convert attachments to API format
+  // Convert attachments to API format (image vs video for backend)
   const apiAttachments = hasAttachments
     ? attachments
         .map((att) => {
@@ -206,7 +211,7 @@ export async function sendChatMessage(
             return null;
           }
           return {
-            type: "image",
+            type: isVideoMimeType(att.mimeType) ? "file" : "image",
             mimeType: parsed.mimeType,
             content: parsed.content,
           };

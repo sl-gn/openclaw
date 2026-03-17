@@ -1,12 +1,12 @@
 import { html, nothing } from "lit";
 import { unsafeHTML } from "lit/directives/unsafe-html.js";
-import { getSafeLocalStorage } from "../../local-storage.ts";
 import type { AssistantIdentity } from "../assistant-identity.ts";
+import type { MessageGroup, ToolCard } from "../types/chat-types.ts";
+import { getSafeLocalStorage } from "../../local-storage.ts";
 import { icons } from "../icons.ts";
 import { toSanitizedMarkdownHtml } from "../markdown.ts";
 import { openExternalUrlSafe } from "../open-external-url.ts";
 import { detectTextDirection } from "../text-direction.ts";
-import type { MessageGroup, ToolCard } from "../types/chat-types.ts";
 import { agentLogoUrl } from "../views/agents-utils.ts";
 import { renderCopyAsMarkdownButton } from "./copy-as-markdown.ts";
 import {
@@ -58,6 +58,42 @@ function extractImages(message: unknown): ImageBlock[] {
   }
 
   return images;
+}
+
+type VideoBlock = { url: string };
+
+function extractVideos(message: unknown): VideoBlock[] {
+  const m = message as Record<string, unknown>;
+  const content = m.content;
+  const videos: VideoBlock[] = [];
+
+  if (Array.isArray(content)) {
+    for (const block of content) {
+      if (typeof block !== "object" || block === null) {
+        continue;
+      }
+      const b = block as Record<string, unknown>;
+
+      if (b.type === "video") {
+        const source = b.source as Record<string, unknown> | undefined;
+        if (source?.type === "base64" && typeof source.data === "string") {
+          const data = source.data;
+          const mediaType = (source.media_type as string) || "video/mp4";
+          const url = data.startsWith("data:") ? data : `data:${mediaType};base64,${data}`;
+          videos.push({ url });
+        } else if (typeof b.url === "string") {
+          videos.push({ url: b.url });
+        }
+      } else if (b.type === "video_url") {
+        const videoUrl = b.video_url as Record<string, unknown> | undefined;
+        if (typeof videoUrl?.url === "string") {
+          videos.push({ url: videoUrl.url });
+        }
+      }
+    }
+  }
+
+  return videos;
 }
 
 export function renderReadingIndicatorGroup(assistant?: AssistantIdentity, basePath?: string) {
@@ -547,6 +583,22 @@ function renderMessageImages(images: ImageBlock[]) {
   `;
 }
 
+function renderMessageVideos(videos: VideoBlock[]) {
+  if (videos.length === 0) {
+    return nothing;
+  }
+
+  return html`
+    <div class="chat-message-videos">
+      ${videos.map(
+        (v) => html`
+          <video src=${v.url} controls class="chat-message-video" muted></video>
+        `,
+      )}
+    </div>
+  `;
+}
+
 /** Render tool cards inside a collapsed `<details>` element. */
 function renderCollapsedToolCards(
   toolCards: ToolCard[],
@@ -639,6 +691,8 @@ function renderGroupedMessage(
   const hasToolCards = toolCards.length > 0;
   const images = extractImages(message);
   const hasImages = images.length > 0;
+  const videos = extractVideos(message);
+  const hasVideos = videos.length > 0;
 
   const extractedText = extractTextCached(message);
   const extractedThinking =
@@ -661,7 +715,7 @@ function renderGroupedMessage(
 
   // Suppress empty bubbles when tool cards are the only content and toggle is off
   const visibleToolCards = hasToolCards && (opts.showToolCalls ?? true);
-  if (!markdown && !visibleToolCards && !hasImages) {
+  if (!markdown && !visibleToolCards && !hasImages && !hasVideos) {
     return nothing;
   }
 
@@ -694,6 +748,7 @@ function renderGroupedMessage(
               </summary>
               <div class="chat-tool-msg-body">
                 ${renderMessageImages(images)}
+                ${renderMessageVideos(videos)}
                 ${
                   reasoningMarkdown
                     ? html`<div class="chat-thinking">${unsafeHTML(
@@ -720,6 +775,7 @@ function renderGroupedMessage(
           `
           : html`
             ${renderMessageImages(images)}
+            ${renderMessageVideos(videos)}
             ${
               reasoningMarkdown
                 ? html`<div class="chat-thinking">${unsafeHTML(
