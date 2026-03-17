@@ -1,3 +1,5 @@
+import fs from "node:fs/promises";
+import os from "node:os";
 import type { AgentMessage, StreamFn } from "@mariozechner/pi-agent-core";
 import { streamSimple } from "@mariozechner/pi-ai";
 import {
@@ -5,19 +7,10 @@ import {
   DefaultResourceLoader,
   SessionManager,
 } from "@mariozechner/pi-coding-agent";
-import fs from "node:fs/promises";
-import os from "node:os";
-import type { VideoContent } from "../../../commands/agent/types.js";
-import type { OpenClawConfig } from "../../../config/config.js";
-import type {
-  PluginHookAgentContext,
-  PluginHookBeforeAgentStartResult,
-  PluginHookBeforePromptBuildResult,
-} from "../../../plugins/types.js";
-import type { CompactEmbeddedPiSessionParams } from "../compact.js";
-import type { EmbeddedRunAttemptParams, EmbeddedRunAttemptResult } from "./types.js";
 import { resolveHeartbeatPrompt } from "../../../auto-reply/heartbeat.js";
+import type { VideoContent } from "../../../commands/agent/types.js";
 import { resolveChannelCapabilities } from "../../../config/channel-capabilities.js";
+import type { OpenClawConfig } from "../../../config/config.js";
 import { getMachineDisplayName } from "../../../infra/machine-name.js";
 import {
   ensureGlobalUndiciEnvProxyDispatcher,
@@ -30,6 +23,11 @@ import {
   resolveTelegramReactionLevel,
 } from "../../../plugin-sdk-internal/telegram.js";
 import { getGlobalHookRunner } from "../../../plugins/hook-runner-global.js";
+import type {
+  PluginHookAgentContext,
+  PluginHookBeforeAgentStartResult,
+  PluginHookBeforePromptBuildResult,
+} from "../../../plugins/types.js";
 import { isCronSessionKey, isSubagentSessionKey } from "../../../routing/session-key.js";
 import { joinPresentTextSegments } from "../../../shared/text/join-segments.js";
 import { buildTtsSystemPromptHint } from "../../../tts/tts.js";
@@ -101,6 +99,7 @@ import { resolveTranscriptPolicy } from "../../transcript-policy.js";
 import { DEFAULT_BOOTSTRAP_FILENAME } from "../../workspace.js";
 import { isRunnerAbortError } from "../abort.js";
 import { appendCacheTtlTimestamp, isCacheTtlEligibleProvider } from "../cache-ttl.js";
+import type { CompactEmbeddedPiSessionParams } from "../compact.js";
 import { resolveCompactionTimeoutMs } from "../compaction-safety-timeout.js";
 import { buildEmbeddedExtensionFactories } from "../extensions.js";
 import { applyExtraParamsToAgent } from "../extra-params.js";
@@ -142,6 +141,7 @@ import {
 } from "./compaction-timeout.js";
 import { pruneProcessedHistoryImages } from "./history-image-prune.js";
 import { detectAndLoadPromptImages, modelSupportsVideo } from "./images.js";
+import type { EmbeddedRunAttemptParams, EmbeddedRunAttemptResult } from "./types.js";
 
 type PromptBuildHookRunner = {
   hasHooks: (hookName: "before_prompt_build" | "before_agent_start") => boolean;
@@ -432,36 +432,15 @@ export function wrapOllamaCompatNumCtx(baseFn: StreamFn | undefined, numCtx: num
     });
 }
 
-/** Inject video_url blocks into the last user message for OpenRouter/Gemini video-capable models. */
+/** Inject video_url blocks into the last user message for OpenRouter/Gemini video-capable models.
+ * Also filters bad media blocks (e.g. data: "undefined") from ALL user messages, even when
+ * no videos are being injected — defense against transcript/upstream bad data. */
 function wrapStreamFnWithVideoInjection(
   baseFn: StreamFn,
   videos: VideoContent[] | undefined,
   model: { input?: string[]; id?: string },
   modelId?: string,
 ): StreamFn {
-  if (!videos?.length || !modelSupportsVideo(model, modelId)) {
-    return baseFn;
-  }
-  const videoBlocks = videos.map((v) => {
-    let url = v.url;
-    if (!url && v.data) {
-      const mime = v.mimeType ?? "video/mp4";
-      const data = String(v.data ?? "").trim();
-      if (!data || data === "undefined") {
-        return null;
-      }
-      url = `data:${mime};base64,${data}`;
-    }
-    if (!url || url.includes("undefined")) {
-      return null;
-    }
-    return { type: "video_url" as const, video_url: { url } };
-  });
-  type VideoBlock = { type: "video_url"; video_url: { url: string } };
-  const validBlocks = videoBlocks.filter((b): b is VideoBlock => Boolean(b));
-  if (validBlocks.length === 0) {
-    return baseFn;
-  }
   const hasBadMediaData = (block: unknown): boolean => {
     if (!block || typeof block !== "object") {
       return false;
@@ -492,13 +471,31 @@ function wrapStreamFnWithVideoInjection(
     return false;
   };
 
+  const videoBlocks = (videos ?? []).map((v) => {
+    let url = v.url;
+    if (!url && v.data) {
+      const mime = v.mimeType ?? "video/mp4";
+      const data = String(v.data ?? "").trim();
+      if (!data || data === "undefined") {
+        return null;
+      }
+      url = `data:${mime};base64,${data}`;
+    }
+    if (!url || url.includes("undefined")) {
+      return null;
+    }
+    return { type: "video_url" as const, video_url: { url } };
+  });
+  type VideoBlock = { type: "video_url"; video_url: { url: string } };
+  const validBlocks = videoBlocks.filter((b): b is VideoBlock => Boolean(b));
+
   return (modelArg, context, options) => {
     const ctx = context as { messages?: Array<{ role?: string; content?: unknown }> };
     const messages = ctx.messages;
     if (!Array.isArray(messages) || messages.length === 0) {
       return baseFn(modelArg, context, options);
     }
-    // Filter bad media blocks from ALL user messages (defense against transcript/upstream bad data)
+    // Always filter bad media blocks from ALL user messages (even when no videos to inject)
     const filteredMessages = messages.map((msg) => {
       if (msg?.role !== "user" || msg.content === undefined) {
         return msg;
@@ -512,26 +509,33 @@ function wrapStreamFnWithVideoInjection(
       }
       return { ...msg, content: filtered };
     });
-    // Inject video blocks into the last user message only
-    for (let i = filteredMessages.length - 1; i >= 0; i--) {
-      const msg = filteredMessages[i];
-      if (msg?.role === "user" && msg.content !== undefined) {
-        const existing = Array.isArray(msg.content)
-          ? msg.content
-          : typeof msg.content === "string"
-            ? [{ type: "text" as const, text: msg.content }]
-            : [{ type: "text" as const, text: JSON.stringify(msg.content ?? "") }];
-        const content = [...existing, ...validBlocks];
-        const modifiedContext = {
-          ...context,
-          messages: filteredMessages
-            .slice(0, i)
-            .concat([{ ...msg, content }], filteredMessages.slice(i + 1)),
-        };
-        return baseFn(modelArg, modifiedContext as Parameters<typeof baseFn>[1], options);
+    // Inject video blocks into the last user message only (when we have valid videos)
+    if (validBlocks.length > 0 && modelSupportsVideo(model, modelId)) {
+      for (let i = filteredMessages.length - 1; i >= 0; i--) {
+        const msg = filteredMessages[i];
+        if (msg?.role === "user" && msg.content !== undefined) {
+          const existing = Array.isArray(msg.content)
+            ? msg.content
+            : typeof msg.content === "string"
+              ? [{ type: "text" as const, text: msg.content }]
+              : [{ type: "text" as const, text: JSON.stringify(msg.content ?? "") }];
+          const content = [...existing, ...validBlocks];
+          const modifiedContext = {
+            ...context,
+            messages: filteredMessages
+              .slice(0, i)
+              .concat([{ ...msg, content }], filteredMessages.slice(i + 1)),
+          };
+          return baseFn(modelArg, modifiedContext as Parameters<typeof baseFn>[1], options);
+        }
       }
     }
-    return baseFn(modelArg, context, options);
+    // No videos to inject, or no user message — pass filtered messages (always filter bad blocks)
+    return baseFn(
+      modelArg,
+      { ...context, messages: filteredMessages } as Parameters<typeof baseFn>[1],
+      options,
+    );
   };
 }
 
@@ -2043,14 +2047,13 @@ export async function runEmbeddedAttempt(
         activeSession.agent.streamFn = wrapOllamaCompatNumCtx(activeSession.agent.streamFn, numCtx);
       }
 
-      if (params.videos?.length) {
-        activeSession.agent.streamFn = wrapStreamFnWithVideoInjection(
-          activeSession.agent.streamFn,
-          params.videos,
-          params.model,
-          params.modelId,
-        );
-      }
+      // Always wrap: filters bad media blocks from transcript; injects videos when present
+      activeSession.agent.streamFn = wrapStreamFnWithVideoInjection(
+        activeSession.agent.streamFn,
+        params.videos,
+        params.model,
+        params.modelId,
+      );
 
       applyExtraParamsToAgent(
         activeSession.agent,
