@@ -10,6 +10,7 @@ import type { MsgContext } from "../../auto-reply/templating.js";
 import { isSilentReplyText, SILENT_REPLY_TOKEN } from "../../auto-reply/tokens.js";
 import type { ReplyPayload } from "../../auto-reply/types.js";
 import { createReplyPrefixOptions } from "../../channels/reply-prefix.js";
+import type { VideoContent } from "../../commands/agent/types.js";
 import { resolveSessionFilePath } from "../../config/sessions.js";
 import { jsonUtf8Bytes } from "../../infra/json-utf8-bytes.js";
 import { normalizeInputProvenance, type InputProvenance } from "../../sessions/input-provenance.js";
@@ -32,7 +33,6 @@ import {
   isChatStopCommandText,
   resolveChatRunExpiresAtMs,
 } from "../chat-abort.js";
-import type { VideoContent } from "../../commands/agent/types.js";
 import { type ChatImageContent, parseMessageWithAttachments } from "../chat-attachments.js";
 import { stripEnvelopeFromMessage, stripEnvelopeFromMessages } from "../chat-sanitize.js";
 import { ADMIN_SCOPE } from "../method-scopes.js";
@@ -1183,6 +1183,18 @@ export const chatHandlers: GatewayRequestHandlers = {
         parsedMessage = parsed.message;
         parsedImages = parsed.images;
         parsedVideos = parsed.videos;
+        const hasVideoAttachments = normalizedAttachments.some(
+          (a) => typeof a.mimeType === "string" && a.mimeType.startsWith("video/"),
+        );
+        if (hasVideoAttachments && parsedVideos.length === 0) {
+          context.logGateway.warn(
+            `chat.send video parse: ${normalizedAttachments.length} attachment(s) included video/* but 0 videos parsed (may be dropped by parseMessageWithAttachments)`,
+          );
+        } else if (parsedVideos.length > 0) {
+          context.logGateway.warn(
+            `chat.send video parse: ${parsedVideos.length} video(s) parsed, will pass to agent`,
+          );
+        }
       } catch (err) {
         respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, String(err)));
         return;

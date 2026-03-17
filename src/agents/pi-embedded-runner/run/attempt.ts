@@ -441,8 +441,8 @@ function wrapStreamFnWithVideoInjection(
   model: { input?: string[]; id?: string },
   modelId?: string,
 ): StreamFn {
-  const hasBadMediaData = (block: unknown): boolean => {
-    if (!block || typeof block !== "object") {
+  const hasBadMediaData = (block: unknown, depth = 0): boolean => {
+    if (depth > 4 || !block || typeof block !== "object") {
       return false;
     }
     const b = block as Record<string, unknown>;
@@ -468,6 +468,15 @@ function wrapStreamFnWithVideoInjection(
     if (typeof data === "string" && data === "undefined") {
       return true;
     }
+    // Recursively check nested parts/content (e.g. Gemini-style)
+    const parts = b?.parts as unknown[] | undefined;
+    if (Array.isArray(parts) && parts.some((p) => hasBadMediaData(p, depth + 1))) {
+      return true;
+    }
+    const content = b?.content as unknown[] | undefined;
+    if (Array.isArray(content) && content.some((c) => hasBadMediaData(c, depth + 1))) {
+      return true;
+    }
     return false;
   };
 
@@ -488,6 +497,16 @@ function wrapStreamFnWithVideoInjection(
   });
   type VideoBlock = { type: "video_url"; video_url: { url: string } };
   const validBlocks = videoBlocks.filter((b): b is VideoBlock => Boolean(b));
+  if ((videos ?? []).length > 0 && validBlocks.length === 0) {
+    log.warn(
+      `video inject: all ${(videos ?? []).length} video(s) filtered as invalid (e.g. data: undefined); none will be sent`,
+    );
+  }
+  if ((videos ?? []).length > 0 && validBlocks.length > 0 && !modelSupportsVideo(model, modelId)) {
+    log.warn(
+      `video inject: model ${modelId ?? model.id ?? "?"} does not support video; ${validBlocks.length} video(s) will not be sent`,
+    );
+  }
 
   return (modelArg, context, options) => {
     const ctx = context as { messages?: Array<{ role?: string; content?: unknown }> };
@@ -502,6 +521,17 @@ function wrapStreamFnWithVideoInjection(
         return msg;
       }
       if (!Array.isArray(msg.content)) {
+        // content may be { parts: [...] } (Gemini-style)
+        const contentObj = msg.content as Record<string, unknown>;
+        const parts = contentObj?.parts as unknown[] | undefined;
+        if (Array.isArray(parts)) {
+          const filtered = parts.filter((block) => !hasBadMediaData(block));
+          const removed = parts.length - filtered.length;
+          if (removed > 0) {
+            totalFiltered += removed;
+            return { ...msg, content: { ...contentObj, parts: filtered } };
+          }
+        }
         return msg;
       }
       const filtered = msg.content.filter((block) => !hasBadMediaData(block));
@@ -2058,6 +2088,11 @@ export async function runEmbeddedAttempt(
       }
 
       // Always wrap: filters bad media blocks from transcript; injects videos when present
+      if (params.videos?.length) {
+        log.warn(
+          `video inject: runId=${params.runId} received ${params.videos.length} video(s), sessionKey=${params.sessionKey ?? "?"}`,
+        );
+      }
       activeSession.agent.streamFn = wrapStreamFnWithVideoInjection(
         activeSession.agent.streamFn,
         params.videos,
