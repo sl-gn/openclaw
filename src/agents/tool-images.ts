@@ -309,8 +309,10 @@ export async function sanitizeContentBlocksImages(
         } satisfies TextContentBlock);
         continue;
       }
-      // Drop inlineData with missing/invalid data
-      const inlineData = rec?.inlineData as Record<string, unknown> | undefined;
+      // Drop inlineData / inline_data (Gemini format) with missing/invalid data
+      const inlineData = (rec?.inlineData ?? rec?.inline_data) as
+        | Record<string, unknown>
+        | undefined;
       if (inlineData && "data" in inlineData) {
         const data = inlineData.data;
         if (typeof data !== "string" || !data.trim() || data === "undefined") {
@@ -320,6 +322,15 @@ export async function sanitizeContentBlocksImages(
           } satisfies TextContentBlock);
           continue;
         }
+      }
+      // Drop blocks with top-level data: "undefined" (e.g. malformed video/image blocks)
+      const topLevelData = rec?.data;
+      if (typeof topLevelData === "string" && topLevelData === "undefined") {
+        out.push({
+          type: "text",
+          text: `[${label}] omitted media block: invalid data (undefined)`,
+        } satisfies TextContentBlock);
+        continue;
       }
       out.push(block);
       continue;

@@ -125,4 +125,24 @@ describe("tool image sanitizing", () => {
       },
     ]);
   });
+
+  it("drops video/image blocks with undefined data to avoid Base64 decoding errors", async () => {
+    const blocks = [
+      { type: "text" as const, text: "Describe this" },
+      { type: "video_url" as const, video_url: { url: "data:video/mp4;base64,undefined" } },
+      { type: "image_url" as const, image_url: { url: "data:image/png;base64,undefined" } },
+      { inlineData: { mimeType: "video/mp4", data: "undefined" } },
+      { inline_data: { mime_type: "image/png", data: "undefined" } },
+      { type: "video" as const, data: "undefined", mimeType: "video/mp4" },
+    ];
+    const out = await sanitizeContentBlocksImages(blocks, "test");
+    expect(out).toEqual([
+      { type: "text", text: "Describe this" },
+      { type: "text", text: "[test] omitted media block: invalid url (undefined data)" },
+      { type: "text", text: "[test] omitted media block: invalid url (undefined data)" },
+      { type: "text", text: "[test] omitted media block: missing or invalid inlineData" },
+      { type: "text", text: "[test] omitted media block: missing or invalid inlineData" },
+      { type: "text", text: "[test] omitted media block: invalid data (undefined)" },
+    ]);
+  });
 });

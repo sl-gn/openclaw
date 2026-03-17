@@ -475,33 +475,60 @@ function wrapStreamFnWithVideoInjection(
     const vUrl = (b?.video_url as Record<string, unknown>)?.url;
     const iUrl = (b?.image_url as Record<string, unknown>)?.url;
     const url = vUrl ?? iUrl;
-    return typeof url === "string" && url.includes("undefined");
+    if (typeof url === "string" && url.includes("undefined")) {
+      return true;
+    }
+    // inlineData / inline_data (Gemini format) with bad data
+    const inlineData = (b?.inlineData ?? b?.inline_data) as Record<string, unknown> | undefined;
+    if (inlineData && "data" in inlineData) {
+      const d = inlineData.data;
+      return typeof d !== "string" || !d.trim() || d === "undefined";
+    }
+    // Blocks with top-level data (e.g. type: "video" / "image") that is "undefined"
+    const data = b?.data;
+    if (typeof data === "string" && data === "undefined") {
+      return true;
+    }
+    return false;
   };
 
   return (modelArg, context, options) => {
     const ctx = context as { messages?: Array<{ role?: string; content?: unknown }> };
     const messages = ctx.messages;
-    if (Array.isArray(messages) && messages.length > 0) {
-      for (let i = messages.length - 1; i >= 0; i--) {
-        const msg = messages[i];
-        if (msg?.role === "user" && msg.content !== undefined) {
-          const existing = Array.isArray(msg.content)
-            ? msg.content.filter((block) => !hasBadMediaData(block))
-            : [];
-          const content = Array.isArray(msg.content)
-            ? [...existing, ...validBlocks]
-            : typeof msg.content === "string"
-              ? [{ type: "text" as const, text: msg.content }, ...validBlocks]
-              : [
-                  { type: "text" as const, text: JSON.stringify(msg.content ?? "") },
-                  ...validBlocks,
-                ];
-          const modifiedContext = {
-            ...context,
-            messages: messages.slice(0, i).concat([{ ...msg, content }], messages.slice(i + 1)),
-          };
-          return baseFn(modelArg, modifiedContext as Parameters<typeof baseFn>[1], options);
-        }
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return baseFn(modelArg, context, options);
+    }
+    // Filter bad media blocks from ALL user messages (defense against transcript/upstream bad data)
+    const filteredMessages = messages.map((msg) => {
+      if (msg?.role !== "user" || msg.content === undefined) {
+        return msg;
+      }
+      if (!Array.isArray(msg.content)) {
+        return msg;
+      }
+      const filtered = msg.content.filter((block) => !hasBadMediaData(block));
+      if (filtered.length === msg.content.length) {
+        return msg;
+      }
+      return { ...msg, content: filtered };
+    });
+    // Inject video blocks into the last user message only
+    for (let i = filteredMessages.length - 1; i >= 0; i--) {
+      const msg = filteredMessages[i];
+      if (msg?.role === "user" && msg.content !== undefined) {
+        const existing = Array.isArray(msg.content)
+          ? msg.content
+          : typeof msg.content === "string"
+            ? [{ type: "text" as const, text: msg.content }]
+            : [{ type: "text" as const, text: JSON.stringify(msg.content ?? "") }];
+        const content = [...existing, ...validBlocks];
+        const modifiedContext = {
+          ...context,
+          messages: filteredMessages
+            .slice(0, i)
+            .concat([{ ...msg, content }], filteredMessages.slice(i + 1)),
+        };
+        return baseFn(modelArg, modifiedContext as Parameters<typeof baseFn>[1], options);
       }
     }
     return baseFn(modelArg, context, options);
