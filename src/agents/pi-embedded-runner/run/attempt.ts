@@ -666,20 +666,34 @@ function wrapStreamFnWithVideoInjection(
 
   const videoBlocks = (videos ?? []).map((v) => {
     let url = v.url;
+    let base64 = typeof v.data === "string" ? v.data.trim() : "";
+    const mime = v.mimeType ?? "video/mp4";
     if (!url && v.data) {
-      const mime = v.mimeType ?? "video/mp4";
-      const data = String(v.data ?? "").trim();
-      if (!data || data === "undefined") {
+      if (!base64 || base64 === "undefined") {
         return null;
       }
-      url = `data:${mime};base64,${data}`;
+      url = `data:${mime};base64,${base64}`;
+    } else if (url?.startsWith("data:") && /;base64,/.test(url)) {
+      const match = /;base64,(.+)$/.exec(url);
+      base64 = match?.[1]?.trim() ?? "";
     }
-    if (!url || url.includes("undefined")) {
+    if (!url || url.includes("undefined") || (base64 && base64 === "undefined")) {
       return null;
     }
-    return { type: "video_url" as const, video_url: { url } };
+    // pi-ai google-shared convertMessages expects mimeType+data for non-text parts;
+    // without these it produces inlineData: { data: undefined } -> "undefined" at API.
+    return {
+      type: "video_url" as const,
+      video_url: { url },
+      ...(base64 && { mimeType: mime, data: base64 }),
+    };
   });
-  type VideoBlock = { type: "video_url"; video_url: { url: string } };
+  type VideoBlock = {
+    type: "video_url";
+    video_url: { url: string };
+    mimeType?: string;
+    data?: string;
+  };
   const validBlocks = videoBlocks.filter((b): b is VideoBlock => Boolean(b));
   if ((videos ?? []).length > 0 && validBlocks.length === 0) {
     log.warn(
