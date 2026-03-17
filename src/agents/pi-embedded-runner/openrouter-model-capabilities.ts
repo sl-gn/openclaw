@@ -156,13 +156,21 @@ function parseModel(model: OpenRouterApiModel): OpenRouterModelCapabilities {
   const input: Array<"text" | "image" | "video"> = ["text"];
   const inputMods = model.architecture?.input_modalities;
   if (Array.isArray(inputMods)) {
-    if (inputMods.includes("image")) {input.push("image");}
-    if (inputMods.includes("video")) {input.push("video");}
+    if (inputMods.includes("image")) {
+      input.push("image");
+    }
+    if (inputMods.includes("video")) {
+      input.push("video");
+    }
   } else {
     const modality = model.architecture?.modality ?? model.modality ?? "";
     const inputModalities = modality.split("->")[0] ?? "";
-    if (inputModalities.includes("image")) {input.push("image");}
-    if (inputModalities.includes("video")) {input.push("video");}
+    if (inputModalities.includes("image")) {
+      input.push("image");
+    }
+    if (inputModalities.includes("video")) {
+      input.push("video");
+    }
   }
 
   return {

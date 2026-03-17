@@ -1,9 +1,6 @@
 import { html, nothing, type TemplateResult } from "lit";
 import { ref } from "lit/directives/ref.js";
 import { repeat } from "lit/directives/repeat.js";
-import type { GatewaySessionRow, SessionsListResult } from "../types.ts";
-import type { ChatItem, MessageGroup } from "../types/chat-types.ts";
-import type { ChatAttachment, ChatQueueItem } from "../ui-types.ts";
 import {
   CHAT_ATTACHMENT_ACCEPT,
   isSupportedChatAttachmentMimeType,
@@ -32,6 +29,9 @@ import {
 import { isSttSupported, startStt, stopStt } from "../chat/speech.ts";
 import { icons } from "../icons.ts";
 import { detectTextDirection } from "../text-direction.ts";
+import type { GatewaySessionRow, SessionsListResult } from "../types.ts";
+import type { ChatItem, MessageGroup } from "../types/chat-types.ts";
+import type { ChatAttachment, ChatQueueItem } from "../ui-types.ts";
 import { agentLogoUrl, resolveAgentAvatarUrl } from "./agents-utils.ts";
 import { renderMarkdownSidebar } from "./markdown-sidebar.ts";
 import "../components/resizable-divider.ts";

@@ -432,6 +432,67 @@ export function wrapOllamaCompatNumCtx(baseFn: StreamFn | undefined, numCtx: num
     });
 }
 
+/** Debug: log payload structure when OPENCLAW_DEBUG_VIDEO_PAYLOAD=1 to trace inline_data.data="undefined". */
+function debugVideoPayloadStructure(payload: unknown): void {
+  if (!payload || typeof payload !== "object") {
+    return;
+  }
+  const rec = payload as Record<string, unknown>;
+  const body = rec.body as Record<string, unknown> | undefined;
+  const items =
+    (rec.contents as unknown[] | undefined) ??
+    (rec.messages as unknown[] | undefined) ??
+    (rec.input as unknown[] | undefined) ??
+    (body && typeof body === "object"
+      ? ((body.contents ?? body.messages ?? body.input) as unknown[] | undefined)
+      : undefined);
+  if (!Array.isArray(items)) {
+    return;
+  }
+  const lines: string[] = ["OPENCLAW_DEBUG_VIDEO_PAYLOAD: payload structure"];
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+    const it = item as Record<string, unknown>;
+    const role = it.role ?? "?";
+    const roleStr = typeof role === "string" ? role : JSON.stringify(role);
+    const parts = (it.parts ?? it.content) as unknown[] | undefined;
+    if (!Array.isArray(parts)) {
+      lines.push(`  [${i}] role=${roleStr} (no parts)`);
+      continue;
+    }
+    for (let j = 0; j < parts.length; j++) {
+      const p = parts[j];
+      if (!p || typeof p !== "object") {
+        continue;
+      }
+      const pt = p as Record<string, unknown>;
+      const typeRaw =
+        pt.type ?? (pt.inline_data ? "inline_data" : pt.inlineData ? "inlineData" : "?");
+      const typeStr = typeof typeRaw === "string" ? typeRaw : JSON.stringify(typeRaw);
+      const data =
+        pt.data ??
+        (pt.inline_data as Record<string, unknown>)?.data ??
+        (pt.inlineData as Record<string, unknown>)?.data ??
+        (pt.video_url as Record<string, unknown>)?.url ??
+        (pt.image_url as Record<string, unknown>)?.url;
+      const dataStr = typeof data === "string" ? data : typeof data;
+      const bad =
+        dataStr === "undefined" || (typeof dataStr === "string" && dataStr.includes("undefined"));
+      const preview =
+        typeof dataStr === "string"
+          ? bad
+            ? `"${dataStr}"`
+            : `len=${dataStr.length}, prefix=${dataStr.slice(0, 20)}...`
+          : String(dataStr);
+      lines.push(`  [${i}].parts[${j}] type=${typeStr} data=${preview}${bad ? " <<< BAD" : ""}`);
+    }
+  }
+  log.warn(lines.join("\n"));
+}
+
 /** Inject video_url blocks into the last user message for OpenRouter/Gemini video-capable models.
  * Also filters bad media blocks (e.g. data: "undefined") from ALL user messages, even when
  * no videos are being injected — defense against transcript/upstream bad data. */
@@ -617,10 +678,20 @@ function wrapStreamFnWithVideoInjection(
     if (hadBad) {
       log.warn("video/media filter: deep pass removed additional bad block(s) (data: undefined)");
     }
+    const debugPayload = process.env.OPENCLAW_DEBUG_VIDEO_PAYLOAD === "1";
+    const wrappedOptions = debugPayload
+      ? {
+          ...options,
+          onPayload: (p: unknown, model?: unknown) => {
+            debugVideoPayloadStructure(p);
+            return options?.onPayload?.(p, model ?? modelArg);
+          },
+        }
+      : options;
     return baseFn(
       modelArg,
       { ...context, messages: sanitized } as Parameters<typeof baseFn>[1],
-      options,
+      wrappedOptions,
     );
   };
 }

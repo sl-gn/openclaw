@@ -12,6 +12,10 @@
  *   bun scripts/debug-video-openrouter.ts [video-path]
  *   pnpm exec node --import tsx scripts/debug-video-openrouter.ts [video-path]
  *
+ * Debug payload structure (trace inline_data.data="undefined"):
+ *   Start gateway with: OPENCLAW_DEBUG_VIDEO_PAYLOAD=1 pnpm gateway
+ *   Then run this script; gateway logs will show payload structure.
+ *
  * Default video path: /Users/kuaiyin/Desktop/output.mp4
  *
  * Set model override for main session (optional):

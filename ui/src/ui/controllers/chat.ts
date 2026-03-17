@@ -1,9 +1,9 @@
-import type { GatewayBrowserClient } from "../gateway.ts";
-import type { ChatAttachment } from "../ui-types.ts";
 import { resetToolStream } from "../app-tool-stream.ts";
 import { isVideoMimeType } from "../chat/attachment-support.ts";
 import { extractText } from "../chat/message-extract.ts";
 import { formatConnectError } from "../connect-error.ts";
+import type { GatewayBrowserClient } from "../gateway.ts";
+import type { ChatAttachment } from "../ui-types.ts";
 import { generateUUID } from "../uuid.ts";
 
 const SILENT_REPLY_PATTERN = /^\s*NO_REPLY\s*$/;

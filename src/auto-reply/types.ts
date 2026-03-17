@@ -1,6 +1,6 @@
 import type { ImageContent } from "@mariozechner/pi-ai";
-import type { InteractiveReply } from "../interactive/payload.js";
 import type { VideoContent } from "../commands/agent/types.js";
+import type { InteractiveReply } from "../interactive/payload.js";
 import type { TypingController } from "./reply/typing.js";
 
 export type BlockReplyContext = {

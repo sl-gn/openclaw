@@ -1,12 +1,12 @@
 import { html, nothing } from "lit";
 import { unsafeHTML } from "lit/directives/unsafe-html.js";
-import type { AssistantIdentity } from "../assistant-identity.ts";
-import type { MessageGroup, ToolCard } from "../types/chat-types.ts";
 import { getSafeLocalStorage } from "../../local-storage.ts";
+import type { AssistantIdentity } from "../assistant-identity.ts";
 import { icons } from "../icons.ts";
 import { toSanitizedMarkdownHtml } from "../markdown.ts";
 import { openExternalUrlSafe } from "../open-external-url.ts";
 import { detectTextDirection } from "../text-direction.ts";
+import type { MessageGroup, ToolCard } from "../types/chat-types.ts";
 import { agentLogoUrl } from "../views/agents-utils.ts";
 import { renderCopyAsMarkdownButton } from "./copy-as-markdown.ts";
 import {
