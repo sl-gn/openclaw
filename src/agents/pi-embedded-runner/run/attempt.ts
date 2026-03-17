@@ -432,7 +432,55 @@ export function wrapOllamaCompatNumCtx(baseFn: StreamFn | undefined, numCtx: num
     });
 }
 
-/** Debug: log payload structure when OPENCLAW_DEBUG_VIDEO_PAYLOAD=1 to trace inline_data.data="undefined". */
+/** Remove parts with inline_data.data === "undefined" from payload (messages/contents). Last-line defense. */
+function sanitizePayloadBadInlineData(payload: unknown): void {
+  if (!payload || typeof payload !== "object") {
+    return;
+  }
+  const rec = payload as Record<string, unknown>;
+  const body = rec.body as Record<string, unknown> | undefined;
+  const items =
+    (rec.contents as unknown[] | undefined) ??
+    (rec.messages as unknown[] | undefined) ??
+    (rec.input as unknown[] | undefined) ??
+    (body && typeof body === "object"
+      ? ((body.contents ?? body.messages ?? body.input) as unknown[] | undefined)
+      : undefined);
+  if (!Array.isArray(items)) {
+    return;
+  }
+  for (const item of items) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+    const it = item as Record<string, unknown>;
+    const parts = (it.parts ?? it.content) as unknown[] | undefined;
+    if (!Array.isArray(parts)) {
+      continue;
+    }
+    let removed = 0;
+    for (let j = parts.length - 1; j >= 0; j--) {
+      const p = parts[j];
+      if (!p || typeof p !== "object") {
+        continue;
+      }
+      const pt = p as Record<string, unknown>;
+      const inline = (pt.inline_data ?? pt.inlineData) as Record<string, unknown> | undefined;
+      const d = inline?.data;
+      if (typeof d === "string" && (d === "undefined" || !d.trim())) {
+        parts.splice(j, 1);
+        removed++;
+      }
+    }
+    if (removed > 0) {
+      log.warn(
+        `video/media filter: payload sanitizer removed ${removed} part(s) with inline_data.data="undefined"`,
+      );
+    }
+  }
+}
+
+/** Debug: log payload structure (default on). Set OPENCLAW_DEBUG_VIDEO_PAYLOAD=0 to disable. */
 function debugVideoPayloadStructure(payload: unknown): void {
   if (!payload || typeof payload !== "object") {
     return;
@@ -552,7 +600,7 @@ function wrapStreamFnWithVideoInjection(
     const b = block as Record<string, unknown>;
     const src = b?.source as Record<string, unknown> | undefined;
     if (src?.type === "base64") {
-      const d = src.data;
+      const d = src.data ?? src.content;
       return typeof d !== "string" || !d.trim() || d === "undefined";
     }
     const vUrl = (b?.video_url as Record<string, unknown>)?.url;
@@ -618,10 +666,11 @@ function wrapStreamFnWithVideoInjection(
     if (!Array.isArray(messages) || messages.length === 0) {
       return baseFn(modelArg, context, options);
     }
-    // Always filter bad media blocks from ALL user messages (even when no videos to inject)
+    // Filter bad media blocks from ALL messages (user, assistant, tool results, etc.)
+    // Bad blocks can come from transcript history, tool outputs, or upstream bugs.
     let totalFiltered = 0;
     const filteredMessages = messages.map((msg) => {
-      if (msg?.role !== "user" || msg.content === undefined) {
+      if (msg?.content === undefined) {
         return msg;
       }
       if (!Array.isArray(msg.content)) {
@@ -650,7 +699,7 @@ function wrapStreamFnWithVideoInjection(
     });
     if (totalFiltered > 0) {
       log.warn(
-        `video/media filter: removed ${totalFiltered} bad block(s) from user messages (e.g. data: undefined)`,
+        `video/media filter: removed ${totalFiltered} bad block(s) from messages (e.g. data: undefined)`,
       );
     }
     // Inject video blocks into the last user message only (when we have valid videos)
@@ -678,16 +727,19 @@ function wrapStreamFnWithVideoInjection(
     if (hadBad) {
       log.warn("video/media filter: deep pass removed additional bad block(s) (data: undefined)");
     }
-    const debugPayload = process.env.OPENCLAW_DEBUG_VIDEO_PAYLOAD === "1";
-    const wrappedOptions = debugPayload
-      ? {
-          ...options,
-          onPayload: (p: unknown, model?: unknown) => {
-            debugVideoPayloadStructure(p);
-            return options?.onPayload?.(p, model ?? modelArg);
-          },
+    const debugPayload =
+      process.env.OPENCLAW_DEBUG_VIDEO_PAYLOAD !== "0" &&
+      process.env.OPENCLAW_DEBUG_VIDEO_PAYLOAD !== "false";
+    const wrappedOptions = {
+      ...options,
+      onPayload: (p: unknown, model?: unknown) => {
+        sanitizePayloadBadInlineData(p);
+        if (debugPayload) {
+          debugVideoPayloadStructure(p);
         }
-      : options;
+        return options?.onPayload?.(p, model ?? modelArg);
+      },
+    };
     return baseFn(
       modelArg,
       { ...context, messages: sanitized } as Parameters<typeof baseFn>[1],

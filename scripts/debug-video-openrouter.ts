@@ -13,8 +13,7 @@
  *   pnpm exec node --import tsx scripts/debug-video-openrouter.ts [video-path]
  *
  * Debug payload structure (trace inline_data.data="undefined"):
- *   Start gateway with: OPENCLAW_DEBUG_VIDEO_PAYLOAD=1 pnpm gateway
- *   Then run this script; gateway logs will show payload structure.
+ *   Enabled by default. Disable with: OPENCLAW_DEBUG_VIDEO_PAYLOAD=0 pnpm gateway
  *
  * Default video path: /Users/kuaiyin/Desktop/output.mp4
  *
