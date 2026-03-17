@@ -496,6 +496,7 @@ function wrapStreamFnWithVideoInjection(
       return baseFn(modelArg, context, options);
     }
     // Always filter bad media blocks from ALL user messages (even when no videos to inject)
+    let totalFiltered = 0;
     const filteredMessages = messages.map((msg) => {
       if (msg?.role !== "user" || msg.content === undefined) {
         return msg;
@@ -504,11 +505,20 @@ function wrapStreamFnWithVideoInjection(
         return msg;
       }
       const filtered = msg.content.filter((block) => !hasBadMediaData(block));
+      const removed = msg.content.length - filtered.length;
+      if (removed > 0) {
+        totalFiltered += removed;
+      }
       if (filtered.length === msg.content.length) {
         return msg;
       }
       return { ...msg, content: filtered };
     });
+    if (totalFiltered > 0) {
+      log.warn(
+        `video/media filter: removed ${totalFiltered} bad block(s) from user messages (e.g. data: undefined)`,
+      );
+    }
     // Inject video blocks into the last user message only (when we have valid videos)
     if (validBlocks.length > 0 && modelSupportsVideo(model, modelId)) {
       for (let i = filteredMessages.length - 1; i >= 0; i--) {

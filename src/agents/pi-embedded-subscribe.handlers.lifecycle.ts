@@ -50,6 +50,13 @@ export function handleAgentEnd(ctx: EmbeddedPiSubscribeContext) {
     const safeRunId = sanitizeForConsole(ctx.params.runId) ?? "-";
     const safeModel = sanitizeForConsole(lastAssistant.model) ?? "unknown";
     const safeProvider = sanitizeForConsole(lastAssistant.provider) ?? "unknown";
+    const rawErr = rawError ?? "";
+    const isMediaDataError = /Base64 decoding failed|inline_data\.data|inlineData\.data/i.test(
+      rawErr,
+    );
+    const debugHint = isMediaDataError
+      ? "Bad media block (e.g. data: undefined) may be in transcript. Try /new for a fresh session."
+      : undefined;
     ctx.log.warn("embedded run agent end", {
       event: "embedded_run_agent_end",
       tags: ["error_handling", "lifecycle", "agent_end", "assistant_error"],
@@ -60,6 +67,8 @@ export function handleAgentEnd(ctx: EmbeddedPiSubscribeContext) {
       model: lastAssistant.model,
       provider: lastAssistant.provider,
       ...observedError,
+      ...(debugHint && { debugHint }),
+      sessionKey: ctx.params.sessionKey,
       consoleMessage: `embedded run agent end: runId=${safeRunId} isError=true model=${safeModel} provider=${safeProvider} error=${safeErrorText}`,
     });
     emitAgentEvent({
