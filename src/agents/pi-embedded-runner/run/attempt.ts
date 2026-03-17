@@ -462,6 +462,22 @@ function wrapStreamFnWithVideoInjection(
   if (validBlocks.length === 0) {
     return baseFn;
   }
+  const hasBadMediaData = (block: unknown): boolean => {
+    if (!block || typeof block !== "object") {
+      return false;
+    }
+    const b = block as Record<string, unknown>;
+    const src = b?.source as Record<string, unknown> | undefined;
+    if (src?.type === "base64") {
+      const d = src.data;
+      return typeof d !== "string" || !d.trim() || d === "undefined";
+    }
+    const vUrl = (b?.video_url as Record<string, unknown>)?.url;
+    const iUrl = (b?.image_url as Record<string, unknown>)?.url;
+    const url = vUrl ?? iUrl;
+    return typeof url === "string" && url.includes("undefined");
+  };
+
   return (modelArg, context, options) => {
     const ctx = context as { messages?: Array<{ role?: string; content?: unknown }> };
     const messages = ctx.messages;
@@ -469,8 +485,11 @@ function wrapStreamFnWithVideoInjection(
       for (let i = messages.length - 1; i >= 0; i--) {
         const msg = messages[i];
         if (msg?.role === "user" && msg.content !== undefined) {
+          const existing = Array.isArray(msg.content)
+            ? msg.content.filter((block) => !hasBadMediaData(block))
+            : [];
           const content = Array.isArray(msg.content)
-            ? [...msg.content, ...validBlocks]
+            ? [...existing, ...validBlocks]
             : typeof msg.content === "string"
               ? [{ type: "text" as const, text: msg.content }, ...validBlocks]
               : [

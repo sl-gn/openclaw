@@ -285,7 +285,7 @@ export async function sanitizeContentBlocksImages(
     }
 
     if (!isImageBlock(block)) {
-      // Drop video/image blocks with source.data missing to avoid "Base64 decoding failed for undefined"
+      // Drop video/image blocks with missing/invalid data to avoid "Base64 decoding failed for undefined"
       const rec = block as Record<string, unknown>;
       const src = rec?.source as Record<string, unknown> | undefined;
       if (src?.type === "base64") {
@@ -294,6 +294,29 @@ export async function sanitizeContentBlocksImages(
           out.push({
             type: "text",
             text: `[${label}] omitted media block: missing or invalid base64 data`,
+          } satisfies TextContentBlock);
+          continue;
+        }
+      }
+      // Drop video_url/image_url with url containing "undefined" (bad data URL)
+      const videoUrl = rec?.video_url as Record<string, unknown> | undefined;
+      const imageUrl = rec?.image_url as Record<string, unknown> | undefined;
+      const url = (videoUrl?.url ?? imageUrl?.url) as string | undefined;
+      if (typeof url === "string" && url.includes("undefined")) {
+        out.push({
+          type: "text",
+          text: `[${label}] omitted media block: invalid url (undefined data)`,
+        } satisfies TextContentBlock);
+        continue;
+      }
+      // Drop inlineData with missing/invalid data
+      const inlineData = rec?.inlineData as Record<string, unknown> | undefined;
+      if (inlineData && "data" in inlineData) {
+        const data = inlineData.data;
+        if (typeof data !== "string" || !data.trim() || data === "undefined") {
+          out.push({
+            type: "text",
+            text: `[${label}] omitted media block: missing or invalid inlineData`,
           } satisfies TextContentBlock);
           continue;
         }

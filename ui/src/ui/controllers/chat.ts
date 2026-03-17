@@ -95,11 +95,18 @@ export async function loadChatHistory(state: ChatState) {
 }
 
 function dataUrlToBase64(dataUrl: string): { content: string; mimeType: string } | null {
+  if (!dataUrl || typeof dataUrl !== "string") {
+    return null;
+  }
   const match = /^data:([^;]+);base64,(.+)$/.exec(dataUrl);
   if (!match) {
     return null;
   }
-  return { mimeType: match[1], content: match[2] };
+  const content = match[2]?.trim();
+  if (!content || content === "undefined") {
+    return null;
+  }
+  return { mimeType: match[1], content };
 }
 
 type AssistantMessageNormalizationOptions = {
@@ -207,7 +214,7 @@ export async function sendChatMessage(
     ? attachments
         .map((att) => {
           const parsed = dataUrlToBase64(att.dataUrl);
-          if (!parsed) {
+          if (!parsed || !parsed.content || parsed.content === "undefined") {
             return null;
           }
           return {
