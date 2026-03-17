@@ -145,6 +145,10 @@ export async function parseMessageWithAttachments(
     const effectiveMime = sniffedMime ?? providedMime ?? mime;
 
     if (isVideoMime(sniffedMime) || isVideoMime(providedMime)) {
+      if (!b64?.trim() || b64 === "undefined") {
+        log?.warn(`attachment ${label}: video base64 invalid (undefined/empty), dropping`);
+        continue;
+      }
       validateAttachmentBase64OrThrow(normalized, { maxBytes: videoMaxBytes });
       videos.push({
         type: "video",
@@ -160,6 +164,10 @@ export async function parseMessageWithAttachments(
     }
     if (!sniffedMime && !isImageMime(providedMime)) {
       log?.warn(`attachment ${label}: unable to detect image mime type, dropping`);
+      continue;
+    }
+    if (!b64?.trim() || b64 === "undefined") {
+      log?.warn(`attachment ${label}: image base64 invalid (undefined/empty), dropping`);
       continue;
     }
     validateAttachmentBase64OrThrow(normalized, { maxBytes });

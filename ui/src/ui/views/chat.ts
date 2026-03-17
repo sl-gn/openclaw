@@ -331,6 +331,10 @@ function handlePaste(e: ClipboardEvent, props: ChatProps) {
       const current = props.attachments ?? [];
       props.onAttachmentsChange?.([...current, newAttachment]);
     });
+    reader.addEventListener("error", () => {
+      const msg = reader.error?.message ?? "unknown";
+      console.warn("[attach] FileReader error (paste)", file.name, file.type, msg);
+    });
     reader.readAsDataURL(file);
   }
 }
@@ -359,6 +363,10 @@ function handleFileSelect(e: Event, props: ChatProps) {
       if (pending === 0) {
         props.onAttachmentsChange?.([...current, ...additions]);
       }
+    });
+    reader.addEventListener("error", () => {
+      const msg = reader.error?.message ?? "unknown";
+      console.warn("[attach] FileReader error (file select)", file.name, file.type, msg);
     });
     reader.readAsDataURL(file);
   }
@@ -390,6 +398,10 @@ function handleDrop(e: DragEvent, props: ChatProps) {
       if (pending === 0) {
         props.onAttachmentsChange?.([...current, ...additions]);
       }
+    });
+    reader.addEventListener("error", () => {
+      const msg = reader.error?.message ?? "unknown";
+      console.warn("[attach] FileReader error (drop)", file.name, file.type, msg);
     });
     reader.readAsDataURL(file);
   }

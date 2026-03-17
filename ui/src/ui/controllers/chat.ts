@@ -94,16 +94,32 @@ export async function loadChatHistory(state: ChatState) {
   }
 }
 
+/** Enable in browser console: localStorage.setItem("OPENCLAW_DEBUG_ATTACHMENTS", "1") */
+const DEBUG_ATTACHMENTS =
+  typeof localStorage !== "undefined" && localStorage.getItem("OPENCLAW_DEBUG_ATTACHMENTS") === "1";
+
 function dataUrlToBase64(dataUrl: string): { content: string; mimeType: string } | null {
   if (!dataUrl || typeof dataUrl !== "string") {
+    if (DEBUG_ATTACHMENTS) {
+      console.warn("[attach] dataUrlToBase64: null/empty dataUrl");
+    }
     return null;
   }
   const match = /^data:([^;]+);base64,(.+)$/.exec(dataUrl);
   if (!match) {
+    if (DEBUG_ATTACHMENTS) {
+      console.warn("[attach] dataUrlToBase64: no match, prefix=", dataUrl.slice(0, 50));
+    }
     return null;
   }
   const content = match[2]?.trim();
   if (!content || content === "undefined") {
+    if (DEBUG_ATTACHMENTS) {
+      console.warn("[attach] dataUrlToBase64: invalid content", {
+        len: content?.length,
+        isUndefined: content === "undefined",
+      });
+    }
     return null;
   }
   return { mimeType: match[1], content };
@@ -183,7 +199,7 @@ export async function sendChatMessage(
   if (hasAttachments) {
     for (const att of attachments) {
       const parsed = dataUrlToBase64(att.dataUrl);
-      if (!parsed) {
+      if (!parsed || !parsed.content || parsed.content === "undefined") {
         continue;
       }
       contentBlocks.push({
@@ -212,9 +228,16 @@ export async function sendChatMessage(
   // Convert attachments to API format (image vs video for backend)
   const apiAttachments = hasAttachments
     ? attachments
-        .map((att) => {
+        .map((att, i) => {
           const parsed = dataUrlToBase64(att.dataUrl);
           if (!parsed || !parsed.content || parsed.content === "undefined") {
+            if (DEBUG_ATTACHMENTS) {
+              console.warn("[attach] send: dropped attachment", i, {
+                hasDataUrl: !!att.dataUrl,
+                dataUrlLen: att.dataUrl?.length,
+                mimeType: att.mimeType,
+              });
+            }
             return null;
           }
           return {
@@ -225,6 +248,18 @@ export async function sendChatMessage(
         })
         .filter((a): a is NonNullable<typeof a> => a !== null)
     : undefined;
+
+  if (DEBUG_ATTACHMENTS && apiAttachments?.length) {
+    console.log(
+      "[attach] send: apiAttachments",
+      apiAttachments.map((a) => ({
+        type: a.type,
+        mimeType: a.mimeType,
+        contentLen: a.content?.length,
+        contentPrefix: a.content?.slice(0, 30),
+      })),
+    );
+  }
 
   try {
     await state.client.request("chat.send", {

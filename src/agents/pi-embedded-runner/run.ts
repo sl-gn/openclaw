@@ -116,6 +116,32 @@ function scrubAnthropicRefusalMagic(prompt: string): string {
   );
 }
 
+function isBadMediaData(value: string | undefined): boolean {
+  return !value || value === "undefined" || value.includes("undefined");
+}
+
+function filterBadMediaFromImages(
+  images: Array<{ type?: string; data?: string; mimeType?: string }> | undefined,
+): typeof images {
+  if (!images?.length) {
+    return images;
+  }
+  const filtered = images.filter((img) => !isBadMediaData(img.data));
+  return filtered.length === images.length ? images : filtered;
+}
+
+function filterBadMediaFromVideos(
+  videos: Array<{ type?: string; data?: string; url?: string; mimeType?: string }> | undefined,
+): typeof videos {
+  if (!videos?.length) {
+    return videos;
+  }
+  const filtered = videos.filter(
+    (v) => !isBadMediaData(v.data) && !(typeof v.url === "string" && v.url.includes("undefined")),
+  );
+  return filtered.length === videos.length ? videos : filtered;
+}
+
 type UsageAccumulator = {
   input: number;
   output: number;
@@ -956,8 +982,8 @@ export async function runEmbeddedPiAgent(
             contextTokenBudget: ctxInfo.tokens,
             skillsSnapshot: params.skillsSnapshot,
             prompt,
-            images: params.images,
-            videos: params.videos,
+            images: filterBadMediaFromImages(params.images),
+            videos: filterBadMediaFromVideos(params.videos),
             disableTools: params.disableTools,
             provider,
             modelId,
