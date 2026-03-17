@@ -446,9 +446,13 @@ function wrapStreamFnWithVideoInjection(
     let url = v.url;
     if (!url && v.data) {
       const mime = v.mimeType ?? "video/mp4";
-      url = `data:${mime};base64,${v.data}`;
+      const data = String(v.data ?? "").trim();
+      if (!data || data === "undefined") {
+        return null;
+      }
+      url = `data:${mime};base64,${data}`;
     }
-    if (!url) {
+    if (!url || url.includes("undefined")) {
       return null;
     }
     return { type: "video_url" as const, video_url: { url } };

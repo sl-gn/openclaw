@@ -15,7 +15,7 @@ export function normalizeRpcAttachmentsToChatAttachments(
   return (
     attachments
       ?.map((a) => {
-        const content =
+        let content =
           typeof a?.content === "string"
             ? a.content
             : ArrayBuffer.isView(a?.content)
@@ -25,6 +25,9 @@ export function normalizeRpcAttachmentsToChatAttachments(
               : a?.content instanceof ArrayBuffer
                 ? Buffer.from(a.content).toString("base64")
                 : undefined;
+        if (content === "undefined" || (typeof content === "string" && !content.trim())) {
+          content = undefined;
+        }
         const url = typeof a?.url === "string" && a.url.trim() ? a.url.trim() : undefined;
         return {
           type: typeof a?.type === "string" ? a.type : undefined,

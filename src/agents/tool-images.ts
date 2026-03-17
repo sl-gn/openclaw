@@ -285,6 +285,19 @@ export async function sanitizeContentBlocksImages(
     }
 
     if (!isImageBlock(block)) {
+      // Drop video/image blocks with source.data missing to avoid "Base64 decoding failed for undefined"
+      const rec = block as Record<string, unknown>;
+      const src = rec?.source as Record<string, unknown> | undefined;
+      if (src?.type === "base64") {
+        const data = src.data;
+        if (typeof data !== "string" || !data.trim() || data === "undefined") {
+          out.push({
+            type: "text",
+            text: `[${label}] omitted media block: missing or invalid base64 data`,
+          } satisfies TextContentBlock);
+          continue;
+        }
+      }
       out.push(block);
       continue;
     }
