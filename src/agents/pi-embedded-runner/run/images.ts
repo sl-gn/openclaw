@@ -1,15 +1,15 @@
+import type { ImageContent } from "@mariozechner/pi-ai";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { ImageContent } from "@mariozechner/pi-ai";
+import type { ImageSanitizationLimits } from "../../image-sanitization.js";
+import type { SandboxFsBridge } from "../../sandbox/fs-bridge.js";
 import { loadWebMedia } from "../../../plugin-sdk/web-media.js";
 import { resolveUserPath } from "../../../utils.js";
-import type { ImageSanitizationLimits } from "../../image-sanitization.js";
 import {
   createSandboxBridgeReadFile,
   resolveSandboxedBridgeMediaPath,
 } from "../../sandbox-media-paths.js";
 import { assertSandboxPath } from "../../sandbox-paths.js";
-import type { SandboxFsBridge } from "../../sandbox/fs-bridge.js";
 import { sanitizeImageBlocks } from "../../tool-images.js";
 import { log } from "../logger.js";
 
@@ -272,9 +272,44 @@ export function modelSupportsImages(model: { input?: string[] }): boolean {
   return model.input?.includes("image") ?? false;
 }
 
+/** Known video-capable model IDs. OpenRouter format (google/...) and bare IDs for direct Google. */
+const KNOWN_VIDEO_CAPABLE_MODEL_IDS = new Set([
+  "google/gemini-3-flash-preview",
+  "google/gemini-3.1-flash-preview",
+  "google/gemini-3.1-flash-lite-preview",
+  "google/gemini-3-pro-preview",
+  "google/gemini-3.1-pro-preview",
+  "google/gemini-2.5-flash",
+  "google/gemini-2.5-pro",
+  "gemini-3-flash-preview",
+  "gemini-3.1-flash-preview",
+  "gemini-3.1-flash-lite-preview",
+  "gemini-3-pro-preview",
+  "gemini-3.1-pro-preview",
+  "gemini-2.5-flash",
+  "gemini-2.5-pro",
+]);
+
 /** True if the model supports video input (e.g. OpenRouter/Gemini). */
-export function modelSupportsVideo(model: { input?: string[] }): boolean {
-  return model.input?.includes("video") ?? false;
+export function modelSupportsVideo(
+  model: { input?: string[]; id?: string },
+  modelId?: string,
+): boolean {
+  if (model.input?.includes("video")) {
+    return true;
+  }
+  const id = modelId ?? model.id;
+  if (typeof id !== "string") {
+    return false;
+  }
+  return (
+    KNOWN_VIDEO_CAPABLE_MODEL_IDS.has(id) ||
+    id.endsWith("/gemini-3-flash-preview") ||
+    id.endsWith("/gemini-3.1-flash-preview") ||
+    id.endsWith("/gemini-3-pro-preview") ||
+    id.endsWith("/gemini-2.5-flash") ||
+    id.endsWith("/gemini-2.5-pro")
+  );
 }
 
 /**

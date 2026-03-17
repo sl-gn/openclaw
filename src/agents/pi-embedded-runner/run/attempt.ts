@@ -436,9 +436,10 @@ export function wrapOllamaCompatNumCtx(baseFn: StreamFn | undefined, numCtx: num
 function wrapStreamFnWithVideoInjection(
   baseFn: StreamFn,
   videos: VideoContent[] | undefined,
-  model: { input?: string[] },
+  model: { input?: string[]; id?: string },
+  modelId?: string,
 ): StreamFn {
-  if (!videos?.length || !modelSupportsVideo(model)) {
+  if (!videos?.length || !modelSupportsVideo(model, modelId)) {
     return baseFn;
   }
   const videoBlocks = videos.map((v) => {
@@ -1997,6 +1998,7 @@ export async function runEmbeddedAttempt(
           activeSession.agent.streamFn,
           params.videos,
           params.model,
+          params.modelId,
         );
       }
 
