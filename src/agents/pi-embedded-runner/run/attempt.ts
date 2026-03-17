@@ -432,7 +432,39 @@ export function wrapOllamaCompatNumCtx(baseFn: StreamFn | undefined, numCtx: num
     });
 }
 
-/** Remove parts with inline_data.data === "undefined" from payload (messages/contents). Last-line defense. */
+/** Check if a payload part has bad media data (undefined/invalid). */
+function isPayloadPartBadMedia(p: unknown): boolean {
+  if (!p || typeof p !== "object") {
+    return false;
+  }
+  const pt = p as Record<string, unknown>;
+  const vUrl = (pt.video_url as Record<string, unknown>)?.url;
+  const iUrl = (pt.image_url as Record<string, unknown>)?.url;
+  const url =
+    (typeof vUrl === "string" ? vUrl : undefined) ?? (typeof iUrl === "string" ? iUrl : undefined);
+  if (typeof url === "string" && url.includes("undefined")) {
+    return true;
+  }
+  const inline = (pt.inline_data ?? pt.inlineData) as Record<string, unknown> | undefined;
+  const d = inline?.data;
+  if (typeof d === "string" && (d === "undefined" || !d.trim())) {
+    return true;
+  }
+  const src = pt.source as Record<string, unknown> | undefined;
+  if (src?.type === "base64") {
+    const sd = src.data ?? src.content;
+    if (typeof sd === "string" && (sd === "undefined" || !sd.trim())) {
+      return true;
+    }
+  }
+  const topData = pt.data;
+  if (typeof topData === "string" && topData === "undefined") {
+    return true;
+  }
+  return false;
+}
+
+/** Remove parts with bad media (inline_data, image_url, video_url with undefined) from payload. Last-line defense. */
 function sanitizePayloadBadInlineData(payload: unknown): void {
   if (!payload || typeof payload !== "object") {
     return;
@@ -460,21 +492,14 @@ function sanitizePayloadBadInlineData(payload: unknown): void {
     }
     let removed = 0;
     for (let j = parts.length - 1; j >= 0; j--) {
-      const p = parts[j];
-      if (!p || typeof p !== "object") {
-        continue;
-      }
-      const pt = p as Record<string, unknown>;
-      const inline = (pt.inline_data ?? pt.inlineData) as Record<string, unknown> | undefined;
-      const d = inline?.data;
-      if (typeof d === "string" && (d === "undefined" || !d.trim())) {
+      if (isPayloadPartBadMedia(parts[j])) {
         parts.splice(j, 1);
         removed++;
       }
     }
     if (removed > 0) {
       log.warn(
-        `video/media filter: payload sanitizer removed ${removed} part(s) with inline_data.data="undefined"`,
+        `video/media filter: payload sanitizer removed ${removed} part(s) with bad media (data/url: undefined)`,
       );
     }
   }
@@ -520,22 +545,29 @@ function debugVideoPayloadStructure(payload: unknown): void {
       const typeRaw =
         pt.type ?? (pt.inline_data ? "inline_data" : pt.inlineData ? "inlineData" : "?");
       const typeStr = typeof typeRaw === "string" ? typeRaw : JSON.stringify(typeRaw);
-      const data =
-        pt.data ??
-        (pt.inline_data as Record<string, unknown>)?.data ??
-        (pt.inlineData as Record<string, unknown>)?.data ??
-        (pt.video_url as Record<string, unknown>)?.url ??
-        (pt.image_url as Record<string, unknown>)?.url;
+      const isText = typeStr === "text" || typeStr === "input_text";
+      const data = isText
+        ? pt.text
+        : (pt.data ??
+          (pt.inline_data as Record<string, unknown>)?.data ??
+          (pt.inlineData as Record<string, unknown>)?.data ??
+          (pt.video_url as Record<string, unknown>)?.url ??
+          (pt.image_url as Record<string, unknown>)?.url);
       const dataStr = typeof data === "string" ? data : typeof data;
       const bad =
-        dataStr === "undefined" || (typeof dataStr === "string" && dataStr.includes("undefined"));
+        !isText &&
+        (dataStr === "undefined" || (typeof dataStr === "string" && dataStr.includes("undefined")));
       const preview =
         typeof dataStr === "string"
           ? bad
             ? `"${dataStr}"`
-            : `len=${dataStr.length}, prefix=${dataStr.slice(0, 20)}...`
+            : dataStr.length > 30
+              ? `len=${dataStr.length}, prefix=${dataStr.slice(0, 20)}...`
+              : dataStr
           : String(dataStr);
-      lines.push(`  [${i}].parts[${j}] type=${typeStr} data=${preview}${bad ? " <<< BAD" : ""}`);
+      lines.push(
+        `  [${i}].parts[${j}] type=${typeStr} ${isText ? "text" : "data"}=${preview}${bad ? " <<< BAD" : ""}`,
+      );
     }
   }
   log.warn(lines.join("\n"));
