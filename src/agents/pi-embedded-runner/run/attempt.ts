@@ -1,5 +1,3 @@
-import fs from "node:fs/promises";
-import os from "node:os";
 import type { AgentMessage, StreamFn } from "@mariozechner/pi-agent-core";
 import { streamSimple } from "@mariozechner/pi-ai";
 import {
@@ -7,10 +5,19 @@ import {
   DefaultResourceLoader,
   SessionManager,
 } from "@mariozechner/pi-coding-agent";
+import fs from "node:fs/promises";
+import os from "node:os";
 import type { VideoContent } from "../../../commands/agent/types.js";
+import type { OpenClawConfig } from "../../../config/config.js";
+import type {
+  PluginHookAgentContext,
+  PluginHookBeforeAgentStartResult,
+  PluginHookBeforePromptBuildResult,
+} from "../../../plugins/types.js";
+import type { CompactEmbeddedPiSessionParams } from "../compact.js";
+import type { EmbeddedRunAttemptParams, EmbeddedRunAttemptResult } from "./types.js";
 import { resolveHeartbeatPrompt } from "../../../auto-reply/heartbeat.js";
 import { resolveChannelCapabilities } from "../../../config/channel-capabilities.js";
-import type { OpenClawConfig } from "../../../config/config.js";
 import { getMachineDisplayName } from "../../../infra/machine-name.js";
 import {
   ensureGlobalUndiciEnvProxyDispatcher,
@@ -23,11 +30,6 @@ import {
   resolveTelegramReactionLevel,
 } from "../../../plugin-sdk-internal/telegram.js";
 import { getGlobalHookRunner } from "../../../plugins/hook-runner-global.js";
-import type {
-  PluginHookAgentContext,
-  PluginHookBeforeAgentStartResult,
-  PluginHookBeforePromptBuildResult,
-} from "../../../plugins/types.js";
 import { isCronSessionKey, isSubagentSessionKey } from "../../../routing/session-key.js";
 import { joinPresentTextSegments } from "../../../shared/text/join-segments.js";
 import { buildTtsSystemPromptHint } from "../../../tts/tts.js";
@@ -99,7 +101,6 @@ import { resolveTranscriptPolicy } from "../../transcript-policy.js";
 import { DEFAULT_BOOTSTRAP_FILENAME } from "../../workspace.js";
 import { isRunnerAbortError } from "../abort.js";
 import { appendCacheTtlTimestamp, isCacheTtlEligibleProvider } from "../cache-ttl.js";
-import type { CompactEmbeddedPiSessionParams } from "../compact.js";
 import { resolveCompactionTimeoutMs } from "../compaction-safety-timeout.js";
 import { buildEmbeddedExtensionFactories } from "../extensions.js";
 import { applyExtraParamsToAgent } from "../extra-params.js";
@@ -141,7 +142,6 @@ import {
 } from "./compaction-timeout.js";
 import { pruneProcessedHistoryImages } from "./history-image-prune.js";
 import { detectAndLoadPromptImages, modelSupportsVideo } from "./images.js";
-import type { EmbeddedRunAttemptParams, EmbeddedRunAttemptResult } from "./types.js";
 
 type PromptBuildHookRunner = {
   hasHooks: (hookName: "before_prompt_build" | "before_agent_start") => boolean;
@@ -468,12 +468,15 @@ function wrapStreamFnWithVideoInjection(
             ? [...msg.content, ...validBlocks]
             : typeof msg.content === "string"
               ? [{ type: "text" as const, text: msg.content }, ...validBlocks]
-              : [{ type: "text" as const, text: JSON.stringify(msg.content ?? "") }, ...validBlocks];
+              : [
+                  { type: "text" as const, text: JSON.stringify(msg.content ?? "") },
+                  ...validBlocks,
+                ];
           const modifiedContext = {
             ...context,
             messages: messages.slice(0, i).concat([{ ...msg, content }], messages.slice(i + 1)),
           };
-          return baseFn(modelArg, modifiedContext, options);
+          return baseFn(modelArg, modifiedContext as Parameters<typeof baseFn>[1], options);
         }
       }
     }
@@ -1842,7 +1845,7 @@ export async function runEmbeddedAttempt(
       });
       // Only create an explicit resource loader when there are extension factories
       // to register; otherwise let createAgentSession use its built-in default.
-      let resourceLoader: DefaultResourceLoader | undefined;
+      let resourceLoader;
       if (extensionFactories.length > 0) {
         resourceLoader = new DefaultResourceLoader({
           cwd: resolvedWorkspace,
