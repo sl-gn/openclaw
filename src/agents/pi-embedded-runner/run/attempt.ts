@@ -441,6 +441,49 @@ function wrapStreamFnWithVideoInjection(
   model: { input?: string[]; id?: string },
   modelId?: string,
 ): StreamFn {
+  /** Deep-remove any block/part with data === "undefined" or url containing "undefined". */
+  const deepRemoveBadMedia = (obj: unknown, depth = 0): unknown => {
+    if (depth > 6 || obj == null) {
+      return obj;
+    }
+    if (Array.isArray(obj)) {
+      const out: unknown[] = [];
+      for (const item of obj) {
+        if (item && typeof item === "object") {
+          const rec = item as Record<string, unknown>;
+          const d =
+            rec?.data ??
+            (rec?.inlineData as Record<string, unknown>)?.data ??
+            (rec?.inline_data as Record<string, unknown>)?.data ??
+            (rec?.source as Record<string, unknown>)?.data;
+          const u =
+            (rec?.video_url as Record<string, unknown>)?.url ??
+            (rec?.image_url as Record<string, unknown>)?.url;
+          if (
+            (typeof d === "string" && d === "undefined") ||
+            (typeof u === "string" && u.includes("undefined"))
+          ) {
+            continue;
+          }
+        }
+        out.push(deepRemoveBadMedia(item, depth + 1));
+      }
+      return out;
+    }
+    if (typeof obj === "object") {
+      const rec = obj as Record<string, unknown>;
+      const parts = rec?.parts as unknown[] | undefined;
+      const content = rec?.content as unknown[] | undefined;
+      if (Array.isArray(parts)) {
+        return { ...rec, parts: deepRemoveBadMedia(parts, depth + 1) };
+      }
+      if (Array.isArray(content)) {
+        return { ...rec, content: deepRemoveBadMedia(content, depth + 1) };
+      }
+    }
+    return obj;
+  };
+
   const hasBadMediaData = (block: unknown, depth = 0): boolean => {
     if (depth > 4 || !block || typeof block !== "object") {
       return false;
@@ -550,6 +593,7 @@ function wrapStreamFnWithVideoInjection(
       );
     }
     // Inject video blocks into the last user message only (when we have valid videos)
+    let finalMessages = filteredMessages;
     if (validBlocks.length > 0 && modelSupportsVideo(model, modelId)) {
       for (let i = filteredMessages.length - 1; i >= 0; i--) {
         const msg = filteredMessages[i];
@@ -560,20 +604,22 @@ function wrapStreamFnWithVideoInjection(
               ? [{ type: "text" as const, text: msg.content }]
               : [{ type: "text" as const, text: JSON.stringify(msg.content ?? "") }];
           const content = [...existing, ...validBlocks];
-          const modifiedContext = {
-            ...context,
-            messages: filteredMessages
-              .slice(0, i)
-              .concat([{ ...msg, content }], filteredMessages.slice(i + 1)),
-          };
-          return baseFn(modelArg, modifiedContext as Parameters<typeof baseFn>[1], options);
+          finalMessages = filteredMessages
+            .slice(0, i)
+            .concat([{ ...msg, content }], filteredMessages.slice(i + 1));
+          break;
         }
       }
     }
-    // No videos to inject, or no user message — pass filtered messages (always filter bad blocks)
+    // Final deep pass: remove any remaining block with data === "undefined" (catch-all)
+    const sanitized = deepRemoveBadMedia(finalMessages) as typeof finalMessages;
+    const hadBad = JSON.stringify(sanitized) !== JSON.stringify(finalMessages);
+    if (hadBad) {
+      log.warn("video/media filter: deep pass removed additional bad block(s) (data: undefined)");
+    }
     return baseFn(
       modelArg,
-      { ...context, messages: filteredMessages } as Parameters<typeof baseFn>[1],
+      { ...context, messages: sanitized } as Parameters<typeof baseFn>[1],
       options,
     );
   };
